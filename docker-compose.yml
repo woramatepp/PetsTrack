@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT}:5432"
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  api-gateway:
+    build: 
+      context: ./api-gateway 
+    container_name: api-gateway
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    env_file:
+      - .env
+    environment:
+      - PORT=${GATEWAY_PORT}
+      - SECRET=${SECRET}
+      - AUTH_SERVICE_URL=http://auth-service:${AUTH_PORT}
+      - PET_SERVICE_URL=http://pet-management:${PET_PORT}
+    depends_on:
+      - auth-service
+      - pet-management
+    restart: unless-stopped
+
+  auth-service:
+    build: 
+      context: ./auth 
+    container_name: auth-service
+    ports:
+      - "${AUTH_PORT}:${AUTH_PORT}"
+    env_file:
+      - .env
+    environment:
+      - PORT=${AUTH_PORT}
+      - DB_DSN=${AUTH_DB_DSN}
+      - SECRET=${SECRET}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  pet-management:
+    build: 
+      context: ./pet-management 
+    container_name: pet-management
+    ports:
+      - "${PET_PORT}:${PET_PORT}"
+    env_file:
+      - .env
+    environment:
+      - PORT=${PET_PORT}
+      - DB_DSN=${PET_DB_DSN}
+      - SECRET=${SECRET}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
