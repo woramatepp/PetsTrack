@@ -150,15 +150,12 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---> จุดที่ 2: Auto Publish เข้า RabbitMQ และเช็ค Savezone <---
 	ownerID := r.Header.Get("X-User-Id")
 
 	if ownerID != "" {
-		// กำหนดค่าเริ่มต้นเป็นแค่การอัปเดตพิกัดปกติ
 		status := "Savezone"
 		message := "อัปเดตพิกัดล่าสุด"
 
-		// เช็คเงื่อนไข: ถ้า Latitude มากกว่า 13.8 ให้เปลี่ยนเป็นแจ้งเตือนฉุกเฉิน
 		if payload.Latitude > 14 {
 			status = "Out of savezone"
 			message = "สัตว์เลี้ยงออกนอก Savezone!"
