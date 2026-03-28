@@ -1,28 +1,29 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
 	"time"
-	"context"
-	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
+	"github.com/sony/gobreaker" // <--- Import Circuit Breaker
 
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
-    "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/codes"
 )
 
 func initTracer(serviceName string) func(context.Context) error {
@@ -48,11 +49,67 @@ func initTracer(serviceName string) func(context.Context) error {
 	return tp.Shutdown
 }
 
-func newProxy(targetURL string) gin.HandlerFunc {
-	url, _ := url.Parse(targetURL)
-	proxy := httputil.NewSingleHostReverseProxy(url)
+// --- สร้าง Custom Transport สำหรับ Circuit Breaker ---
+type circuitBreakerTransport struct {
+	cb *gobreaker.CircuitBreaker
+	rt http.RoundTripper
+}
 
-	proxy.Transport = otelhttp.NewTransport(http.DefaultTransport)
+// ดักจับ Request ขาออกเพื่อดูว่าปลายทางล่มหรือไม่
+func (cbt *circuitBreakerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	result, err := cbt.cb.Execute(func() (interface{}, error) {
+		resp, err := cbt.rt.RoundTrip(req)
+		if err != nil {
+			return nil, err // ปลายทางตาย (Connection Refused, Timeout)
+		}
+		if resp.StatusCode >= 500 {
+			// ถ้าระบบปลายทางตอบ 500+ ถือว่าเป็น Error ให้ Circuit Breaker นับเป็นความล้มเหลว
+			return resp, fmt.Errorf("server error: %d", resp.StatusCode)
+		}
+		return resp, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result.(*http.Response), nil
+}
+
+// --- แก้ไข newProxy ให้รองรับ Circuit Breaker ---
+func newProxy(targetURL string, serviceName string) gin.HandlerFunc {
+	target, _ := url.Parse(targetURL)
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// ตั้งค่า Circuit Breaker
+	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        serviceName + "-CB",
+		MaxRequests: 3,               // ยอมให้ทดลองส่ง Request ได้ 3 ครั้งตอนอยู่ในสถานะ Half-Open
+		Timeout:     5 * time.Second, // ระยะเวลาที่ต้องรอก่อนจะลองยิงไป Service นั้นใหม่ (5 วิ)
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			// จะตัดวงจร (Trip) ก็ต่อเมื่อมี Request เกิน 3 ครั้ง และอัตราการพังเกิน 50%
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.5
+		},
+	})
+
+	// เอา Circuit Breaker ไปครอบทับ Transport ของ OTel (Tracing) อีกที
+	baseTransport := otelhttp.NewTransport(http.DefaultTransport)
+	proxy.Transport = &circuitBreakerTransport{
+		cb: cb,
+		rt: baseTransport,
+	}
+
+	// สร้าง Error Handler เพื่อตอบผู้ใช้เวลาที่ Circuit Breaker ทำงาน หรือ Service พัง
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable) // HTTP 503
+
+		if err == gobreaker.ErrOpenState {
+			w.Write([]byte(fmt.Sprintf(`{"error": "Circuit Breaker OPEN: Service %s is currently unavailable."}`, serviceName)))
+			return
+		}
+		w.Write([]byte(fmt.Sprintf(`{"error": "Service %s is down: %v"}`, serviceName, err)))
+	}
 
 	return func(c *gin.Context) {
 		proxy.ServeHTTP(c.Writer, c.Request)
@@ -61,7 +118,7 @@ func newProxy(targetURL string) gin.HandlerFunc {
 
 func RequireAuth(c *gin.Context) {
 	ctx, span := otel.Tracer("api-gateway").Start(c.Request.Context(), "RequireAuth")
-    defer span.End()
+	defer span.End()
 
 	c.Request = c.Request.WithContext(ctx)
 
@@ -88,11 +145,8 @@ func RequireAuth(c *gin.Context) {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
-
 		userID := claims["user_id"]
-
 		c.Request.Header.Set("X-User-Id", fmt.Sprintf("%v", userID))
-
 		c.Next()
 	} else {
 		c.AbortWithStatus(http.StatusUnauthorized)
@@ -104,7 +158,7 @@ func main() {
 	godotenv.Load()
 
 	shutdown := initTracer("api-gateway")
-    defer shutdown(context.Background())
+	defer shutdown(context.Background())
 
 	r := gin.Default()
 
@@ -113,34 +167,34 @@ func main() {
 	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
 	petServiceURL := os.Getenv("PET_SERVICE_URL")
 	trackingServiceURL := os.Getenv("TRACKING_SERVICE_URL")
+	notiServiceURL := "http://notification-service:8080"
 
+	// ใส่ชื่อ Service กำกับไปตอนสร้าง Proxy ด้วย เพื่อให้ Circuit Breaker แยกการทำงานกัน
 	authGroup := r.Group("/user")
 	{
-		authGroup.Any("/*path", newProxy(authServiceURL))
+		authGroup.Any("/*path", newProxy(authServiceURL, "auth-service"))
 	}
 
 	petGroup := r.Group("/pets")
-
 	petGroup.Use(RequireAuth)
 	{
-		petGroup.Any("/*path", newProxy(petServiceURL))
+		petGroup.Any("/*path", newProxy(petServiceURL, "pet-management"))
 	}
 
 	trackingGroup := r.Group("/tracking")
 	trackingGroup.Use(RequireAuth)
 	{
-		// จะส่งต่อทุก Request ที่ขึ้นต้นด้วย /tracking ไปยัง Tracking Service
-		trackingGroup.Any("/*path", newProxy(trackingServiceURL))
+		trackingGroup.Any("/*path", newProxy(trackingServiceURL, "tracking-service"))
 	}
-
-	notiServiceURL := "http://notification-service:8080"
 
 	wsGroup := r.Group("/ws")
 	{
-		// ให้ Gateway ส่งต่อการเชื่อมต่อ WebSocket ไปที่ Noti Service
-		wsGroup.Any("", newProxy(notiServiceURL))
+		wsGroup.Any("", newProxy(notiServiceURL, "notification-service"))
 	}
 
 	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // เผื่อกรณีลืมตั้ง PORT ใน .env
+	}
 	r.Run(":" + port)
 }
