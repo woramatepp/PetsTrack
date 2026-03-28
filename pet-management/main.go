@@ -1,17 +1,17 @@
 package main
 
 import (
-	"os"
 	"context"
+	"os"
 	"pet-management/controllers"
 	"pet-management/database"
 	"pet-management/initializers"
 	"pet-management/tracing"
+	workers "pet-management/worker"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
-
 
 func main() {
 
@@ -26,7 +26,7 @@ func main() {
 
 	r.Use(otelgin.Middleware("pet-management-service"))
 
-	petGroup := r.Group("/pets") 
+	petGroup := r.Group("/pets")
 	{
 		petGroup.POST("/create", controllers.CreatePet)
 		petGroup.GET("/", controllers.GetPets)
@@ -35,6 +35,7 @@ func main() {
 		petGroup.DELETE("/:id", controllers.DeletePet)
 	}
 
+	go workers.StartUserDeletedWorker()
 	r.Run(":" + port)
 
 }

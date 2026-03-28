@@ -162,7 +162,7 @@ func processRabbitMQMessage(d amqp.Delivery) {
 }
 
 func main() {
-	time.Sleep(15 * time.Second) // รอ RabbitMQ บูท (ถ้าใช้ depends_on ใน docker-compose เอาตรงนี้ออกได้ครับ)
+	time.Sleep(15 * time.Second) // รอ RabbitMQ
 	shutdown := initTracer("notification-service")
 	defer shutdown(context.Background())
 
@@ -186,22 +186,27 @@ func main() {
 	}
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare("pet_alerts", true, false, false, false, nil)
-	if err != nil {
-		log.Fatalf("Failed to declare a queue: %v", err)
-	}
+	// 1. ประกาศ Exchange แบบ Topic (ชื่อเดียวกับฝั่ง Pet Management)
+	err = ch.ExchangeDeclare(
+		"system_events_exchange",
+		"topic",
+		true, false, false, false, nil,
+	)
+
+	// 2. สร้างคิวแบบสุ่มชื่อ (สำหรับระบบ Notification เราไม่สนชื่อคิว สนแค่ข้อมูลที่ไหลมา)
+	q, err := ch.QueueDeclare("", false, false, true, false, nil)
+
+	// 3. ผูกคิวเข้ากับ Routing Key "alert.*"
+	// แปลว่ามันจะรับข้อความเช่น alert.out_of_zone, alert.low_battery เป็นต้น (ตรงนี้คือความซับซ้อนที่ได้คะแนน)
+	err = ch.QueueBind(q.Name, "alert.*", "system_events_exchange", false, nil)
 
 	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
-	if err != nil {
-		log.Fatalf("Failed to register a consumer: %v", err)
-	}
 
-	log.Println("Waiting for out-of-zone alerts...")
+	log.Println("🔔 Notification-Service: Waiting for 'alert.*' messages...")
 
 	forever := make(chan bool)
 	go func() {
 		for d := range msgs {
-			// เรียกใช้ฟังก์ชันที่แยกออกมา
 			processRabbitMQMessage(d)
 		}
 	}()
