@@ -22,13 +22,13 @@ func StartUserDeletedWorker() {
 	}
 
 	// ประกาศ Exchange (ตัวเดียวกับระบบหลัก เพื่อให้ใช้ร่วมกันได้)
-	err = ch.ExchangeDeclare("pet_events_exchange", "topic", true, false, false, false, nil)
+	err = ch.ExchangeDeclare("system_events_exchange", "topic", true, false, false, false, nil)
 
 	// สร้าง Queue สำหรับจัดการ Data Consistency โดยเฉพาะ
 	q, err := ch.QueueDeclare("pet_consistency_queue", true, false, false, false, nil)
 
 	// ผูก Queue ด้วย Routing Key "user.deleted"
-	err = ch.QueueBind(q.Name, "user.deleted", "pet_events_exchange", false, nil)
+	err = ch.QueueBind(q.Name, "user.deleted", "system_events_exchange", false, nil)
 
 	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
 
