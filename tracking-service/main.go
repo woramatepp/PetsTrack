@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,37 @@ import (
 
 	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
+
+type amqpHeadersCarrier amqp.Table
+
+func (c amqpHeadersCarrier) Get(key string) string {
+    if v, ok := c[key]; ok {
+        return fmt.Sprint(v)
+    }
+    return ""
+}
+
+func (c amqpHeadersCarrier) Set(key string, value string) {
+    c[key] = value
+}
+
+func (c amqpHeadersCarrier) Keys() []string {
+    keys := make([]string, 0, len(c))
+    for k := range c {
+        keys = append(keys, k)
+    }
+    return keys
+}
 
 // โครงสร้างข้อมูลพิกัดที่รับเข้ามา
 type LocationPayload struct {
@@ -22,7 +53,33 @@ type LocationPayload struct {
 var rmqChannel *amqp.Channel
 var db *sql.DB
 
+func initTracer(serviceName string) func(context.Context) error {
+	exporter, err := otlptracehttp.New(context.Background(),
+		otlptracehttp.WithEndpoint("jaeger:4318"),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, _ := resource.New(context.Background(),
+		resource.WithAttributes(semconv.ServiceNameKey.String(serviceName)),
+	)
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+	return tp.Shutdown
+}
+
 func main() {
+	shutdown := initTracer("tracking-service")
+	defer shutdown(context.Background())
+
 	var err error
 	// ตั้งค่าการเชื่อมต่อ PostgreSQL
 	connStr := os.Getenv("DB_DSN")
@@ -55,8 +112,10 @@ func main() {
 	initRabbitMQ()
 
 	// เพิ่ม Endpoint
-	http.HandleFunc("/", serveFrontend)
-	http.HandleFunc("/tracking/location", handleLocation)
+	// http.HandleFunc("/", serveFrontend)
+	// http.HandleFunc("/tracking/location", handleLocation)
+	http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
+	http.Handle("/tracking/location", otelhttp.NewHandler(http.HandlerFunc(handleLocation), "handleLocation"))
 
 	fmt.Println("Tracking Service กำลังรันอยู่ที่พอร์ต 8081...")
 	log.Fatal(http.ListenAndServe(":8081", nil))
@@ -84,11 +143,21 @@ func initRabbitMQ() {
 	fmt.Println("RabbitMQ Initialized Successfully")
 }
 
-func publishToRabbitMQ(alert map[string]interface{}) {
+func publishToRabbitMQ(ctx context.Context, alert map[string]interface{}) {
+	ctx, span := otel.Tracer("tracking-service").Start(ctx, "RabbitMQ Publish: pet_alerts")
+    defer span.End()
+
 	if rmqChannel == nil {
+		err := fmt.Errorf("RabbitMQ channel ไม่พร้อมใช้งาน")
+        span.RecordError(err)
+        span.SetStatus(codes.Error, err.Error())
+        log.Println(err)
 		log.Println("RabbitMQ channel ไม่พร้อมใช้งาน")
 		return
 	}
+	headers := amqp.Table{} 
+    
+    otel.GetTextMapPropagator().Inject(ctx, amqpHeadersCarrier(headers))
 
 	body, _ := json.Marshal(alert)
 	err := rmqChannel.Publish(
@@ -97,11 +166,14 @@ func publishToRabbitMQ(alert map[string]interface{}) {
 		false,        // mandatory
 		false,        // immediate
 		amqp.Publishing{
+			Headers:     headers,
 			ContentType: "application/json",
 			Body:        body,
 		})
 
 	if err != nil {
+		span.RecordError(err)
+        span.SetStatus(codes.Error, "failed to publish message")
 		log.Printf("ส่งข้อมูลเข้า RabbitMQ ไม่สำเร็จ: %v", err)
 	} else {
 		fmt.Println("--> Auto Publish:", string(body))
@@ -120,6 +192,11 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	ctx := r.Context()
+
+	ctx, span := otel.Tracer("tracking-service").Start(ctx, "process_location")
+    defer span.End()
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
@@ -141,10 +218,11 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	jsonData, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Println("ได้รับพิกัดใหม่:\n", string(jsonData))
 
-	// บันทึกข้อมูลลง PostgreSQL
 	insertQuery := `INSERT INTO pet_locations (pet_id, latitude, longitude) VALUES ($1, $2, $3)`
-	_, err = db.Exec(insertQuery, payload.PetID, payload.Latitude, payload.Longitude)
+	_, err = db.ExecContext(ctx, insertQuery, payload.PetID, payload.Latitude, payload.Longitude)
 	if err != nil {
+		span.RecordError(err)
+        span.SetStatus(codes.Error, "failed to insert location")
 		log.Printf("เกิดข้อผิดพลาดในการบันทึกข้อมูล: %v", err)
 		http.Error(w, "ข้อผิดพลาดเซิร์ฟเวอร์ภายใน", http.StatusInternalServerError)
 		return
@@ -170,7 +248,7 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 			"latitude":  payload.Latitude,
 			"longitude": payload.Longitude,
 		}
-		publishToRabbitMQ(alert)
+		publishToRabbitMQ(ctx, alert)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

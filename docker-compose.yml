@@ -42,6 +42,7 @@ services:
       - auth-service
       - pet-management
       - tracking-service
+      - jaeger
     restart: unless-stopped
 
   auth-service:
@@ -58,6 +59,7 @@ services:
       - SECRET=${SECRET}
     depends_on:
       - postgres
+      - jaeger
     restart: unless-stopped
 
   pet-management:
@@ -74,6 +76,7 @@ services:
       - SECRET=${SECRET}
     depends_on:
       - postgres
+      - jaeger
     restart: unless-stopped
 
   tracking-service:
@@ -89,6 +92,7 @@ services:
       - DB_DSN=host=postgres port=5432 user=${DB_USER} password=${DB_PASSWORD} dbname=tracking_db sslmode=disable
     depends_on:
       - postgres
+      - jaeger
     restart: unless-stopped
 
   ngrok:
@@ -110,11 +114,13 @@ services:
 
   jaeger:
     image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     ports:
       - "16686:16686"     # Web UI
       - "4318:4318"       # OTLP Receiver
 
-notification-service:
+  notification-service:
     build: 
       context: ./notification-service
     container_name: notification-service
@@ -124,6 +130,7 @@ notification-service:
       - "8080:8080"
     depends_on:
       - rabbitmq
+      - jaeger
     restart: unless-stopped
     
 

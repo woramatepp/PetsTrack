@@ -9,6 +9,9 @@ import (
 	"pet-management/models"
 
 	"github.com/gin-gonic/gin"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type CreatePetRequest struct {
@@ -29,8 +32,12 @@ type UpdatePetRequest struct {
 	Image   *multipart.FileHeader `form:"image"`
 }
 
+var tracer = otel.Tracer("pet-management-service")
+
 func CreatePet(c *gin.Context) {
 	ownerID := c.GetHeader("X-User-Id")
+	ctx, span := tracer.Start(c.Request.Context(), "CreatePet")
+	defer span.End()
 	if ownerID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -65,7 +72,9 @@ func CreatePet(c *gin.Context) {
 		OwnerID: ownerID,
 	}
 
-	if err := database.DB.Create(&newPet).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Create(&newPet).Error; err != nil {
+		span.RecordError(err)
+        span.SetStatus(codes.Error, "failed to create pet in db")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -74,6 +83,8 @@ func CreatePet(c *gin.Context) {
 }
 
 func GetPets(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "GetPets")
+	defer span.End()
 	ownerID := c.GetHeader("X-User-Id")
 	if ownerID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -81,7 +92,9 @@ func GetPets(c *gin.Context) {
 	}
 
 	var pets []models.Pet
-	if err := database.DB.Where("owner_id = ?", ownerID).Find(&pets).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Where("owner_id = ?", ownerID).Find(&pets).Error; err != nil {
+		span.RecordError(err)
+        span.SetStatus(codes.Error, "failed to get pets from db")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -90,11 +103,15 @@ func GetPets(c *gin.Context) {
 }
 
 func GetPetByID(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "GetPetByID")
+	defer span.End()
 	petID := c.Param("id")
 	ownerID := c.GetHeader("X-User-Id")
 
 	var pet models.Pet
-	if err := database.DB.Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+		span.RecordError(err)
+        span.SetStatus(codes.Error, "failed to get pet by ID")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Pet not found"})
 		return
 	}
@@ -103,12 +120,16 @@ func GetPetByID(c *gin.Context) {
 }
 
 func UpdatePet(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "UpdatePet")
+	defer span.End()
     petID := c.Param("id")
     ownerID := c.GetHeader("X-User-Id")
 
     var pet models.Pet
 	
-    if err := database.DB.Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+    if err := database.DB.WithContext(ctx).Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to find pet in db")
         c.JSON(http.StatusNotFound, gin.H{"error": "Pet not found"})
         return
     }
@@ -141,7 +162,9 @@ func UpdatePet(c *gin.Context) {
         pet.Image = imageData
     }
 
-    if err := database.DB.Save(&pet).Error; err != nil {
+    if err := database.DB.WithContext(ctx).Save(&pet).Error; err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update pet in db")
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update database"})
         return
     }
@@ -150,16 +173,22 @@ func UpdatePet(c *gin.Context) {
 }
 
 func DeletePet(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "DeletePet")
+	defer span.End()
 	petID := c.Param("id")
 	ownerID := c.GetHeader("X-User-Id")
 
 	var pet models.Pet
-	if err := database.DB.Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Where("id = ? AND owner_id = ?", petID, ownerID).First(&pet).Error; err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to find pet in db")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Pet Not found"})
 		return
 	}
 
-	if err := database.DB.Delete(&pet).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Delete(&pet).Error; err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to delete pet from db")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

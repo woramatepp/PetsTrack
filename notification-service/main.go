@@ -12,6 +12,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -20,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// เผื่อรอต้า
 type PetAlert struct {
 	PetID   string `json:"pet_id"`
 	PetName string `json:"pet_name"`
@@ -39,7 +39,7 @@ type ClientManager struct {
 var manager = ClientManager{clients: make(map[*websocket.Conn]string)}
 var tracer = otel.Tracer("notification-service")
 
-// Tracing
+// --- Tracing Setup ---
 func initTracer(serviceName string) func(context.Context) error {
 	exporter, err := otlptracehttp.New(context.Background(),
 		otlptracehttp.WithEndpoint("jaeger:4318"),
@@ -63,6 +63,7 @@ func initTracer(serviceName string) func(context.Context) error {
 	return tp.Shutdown
 }
 
+// --- AMQP Carrier สำหรับ Extract Trace ID ---
 type AMQPHeadersCarrier map[string]interface{}
 
 func (a AMQPHeadersCarrier) Get(key string) string {
@@ -73,11 +74,21 @@ func (a AMQPHeadersCarrier) Get(key string) string {
 	}
 	return ""
 }
-func (a AMQPHeadersCarrier) Set(key string, value string) {}
-func (a AMQPHeadersCarrier) Keys() []string               { return nil }
 
-// WebSocket
+func (a AMQPHeadersCarrier) Set(key string, value string) {}
+
+// 1️⃣ แก้ไข Keys() ให้ส่งคืนรายชื่อ Key ทั้งหมดที่มีใน Headers
+func (a AMQPHeadersCarrier) Keys() []string {
+	keys := make([]string, 0, len(a))
+	for k := range a {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// --- WebSocket ---
 func handleConnections(w http.ResponseWriter, r *http.Request) {
+	// ... (โค้ดเดิมของคุณ ไม่มีการเปลี่ยนแปลง) ...
 	ownerID := r.URL.Query().Get("owner_id")
 	if ownerID == "" {
 		log.Println("Connection rejected: missing owner_id")
@@ -125,8 +136,33 @@ func sendAlertToOwner(ctx context.Context, alert PetAlert) {
 	}
 }
 
+// 2️⃣ แยกฟังก์ชันจัดการข้อความ 1 ชิ้นออกมา เพื่อให้ใช้ defer span.End() ได้ง่ายขึ้น
+func processRabbitMQMessage(d amqp.Delivery) {
+	// Extract Trace ID ออกมาจาก RabbitMQ Header
+	ctx := otel.GetTextMapPropagator().Extract(context.Background(), AMQPHeadersCarrier(d.Headers))
+
+	// สร้าง Span รับช่วงต่อ
+	ctx, span := tracer.Start(ctx, "process-pet-alert")
+	defer span.End()
+
+	var alert PetAlert
+	if err := json.Unmarshal(d.Body, &alert); err == nil {
+		span.SetAttributes(
+			attribute.String("pet_id", alert.PetID),
+			attribute.String("owner_id", alert.OwnerID),
+		)
+
+		log.Printf("Alert received for pet: %s", alert.PetName)
+		sendAlertToOwner(ctx, alert) // ส่ง ctx ไปต่อที่ WebSocket sender
+	} else {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "JSON unmarshal failed")
+		log.Printf("Error decoding JSON: %v", err)
+	}
+}
+
 func main() {
-	time.Sleep(15 * time.Second)
+	time.Sleep(15 * time.Second) // รอ RabbitMQ บูท (ถ้าใช้ depends_on ใน docker-compose เอาตรงนี้ออกได้ครับ)
 	shutdown := initTracer("notification-service")
 	defer shutdown(context.Background())
 
@@ -140,13 +176,13 @@ func main() {
 
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %v", err)
+		log.Fatalf("Failed to open a channel (conn): %v", err)
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %v", err)
+		log.Fatalf("Failed to open a channel (ch): %v", err)
 	}
 	defer ch.Close()
 
@@ -165,25 +201,8 @@ func main() {
 	forever := make(chan bool)
 	go func() {
 		for d := range msgs {
-			ctx := otel.GetTextMapPropagator().Extract(context.Background(), AMQPHeadersCarrier(d.Headers))
-
-			ctx, span := tracer.Start(ctx, "process-pet-alert")
-
-			var alert PetAlert
-			if err := json.Unmarshal(d.Body, &alert); err == nil {
-				span.SetAttributes(
-					attribute.String("pet_id", alert.PetID),
-					attribute.String("owner_id", alert.OwnerID),
-				)
-
-				log.Printf("Alert received for pet: %s", alert.PetName)
-				sendAlertToOwner(ctx, alert) // โยนไปส่ง WebSocket
-			} else {
-				span.RecordError(err)
-				log.Printf("Error decoding JSON: %v", err)
-			}
-
-			span.End()
+			// เรียกใช้ฟังก์ชันที่แยกออกมา
+			processRabbitMQMessage(d)
 		}
 	}()
 
