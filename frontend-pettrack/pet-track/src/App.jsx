@@ -8,6 +8,7 @@ import SignUp from './pages/SignUp';
 import MyPets from './pages/MyPets';
 import Profile from './pages/Profile'; // หน้าใหม่
 import AddPet from './pages/AddPet'; // หน้าใหม่ (หน้า PetType ในรูป)
+import EditPet from './pages/EditPet';
 
 // Component ช่วยล็อกหน้า (ถ้าไม่ล็อกอิน จะเด้งไปหน้า Sign In)
 const ProtectedRoute = ({ children }) => {
@@ -43,6 +44,7 @@ function App() {
                     {/* หน้าที่ต้องล็อกอินเท่านั้น */}
                     <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                     <Route path="/add-pet" element={<ProtectedRoute><AddPet /></ProtectedRoute>} />
+                    <Route path="/editpet/:id" element={<EditPet />} />
 
                     <Route path="/mypets" element={<MyPets />} />
                 </Routes>
