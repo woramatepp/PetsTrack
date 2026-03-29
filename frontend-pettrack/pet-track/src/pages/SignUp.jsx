@@ -13,10 +13,17 @@ function SignUp() {
     const handleSignUp = async (e) => {
         e.preventDefault();
         setError('');
+
+        // 🌟 1. เช็คความถูกต้องของรหัสผ่านก่อนเลย
+        if (password !== confirmPassword) {
+            setError('รหัสผ่าน และ ยืนยันรหัสผ่าน ไม่ตรงกัน');
+            return;
+        }
+
         setLoading(true);
 
         try {
-            // แก้ไขจาก '/signup' เป็น '/user/signup' ให้ตรงกับ API Gateway
+            // 🌟 2. ระบุ URL เต็มๆ ชี้ไปที่ API Gateway พอร์ต 8080 (หรือเปลี่ยนตามพอร์ตที่คุณใช้)
             const response = await fetch('/user/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -24,16 +31,28 @@ function SignUp() {
                     email: email,
                     password: password
                 }),
+                credentials: 'include', // อย่าลืมใส่ตัวนี้ในทั้ง Sign Up และ Sign In เพื่อให้รับ Cookie ได้
             });
 
-            const data = await response.json();
-
+            // 🌟 3. ตรวจสอบสถานะก่อนค่อยอ่านข้อมูล
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Error ${response.status}: ${errorText}`);
+                // พยายามอ่าน Error Message จาก Backend (ถ้าพังก็อ่านเป็น Text ธรรมดา)
+                let errorMsg = `Error ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.error || errorMsg;
+                } catch {
+                    errorMsg = "ระบบมีปัญหา (หรือหา API ไม่เจอ)";
+                }
+                throw new Error(errorMsg);
             }
 
+            // ถ้าสถานะโอเค ค่อยอ่านข้อมูล
+            const data = await response.json();
+
+            // พาไปหน้า Login
             navigate('/login');
+
         } catch (err) {
             setError(err.message);
         } finally {

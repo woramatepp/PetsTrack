@@ -1,20 +1,127 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"auth/database"
 	"auth/models"
 )
+
+func GetMe(c *gin.Context) {
+	userID, exists := c.Get("X-User-Id") // ได้มาจาก Middleware ของ Gateway
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var user models.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
+// อัปเดตข้อมูลโปรไฟล์ (ไม่รวมรูป)
+func UpdateProfile(c *gin.Context) {
+	userID, exists := c.Get("X-User-Id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var input struct {
+		Name        string `json:"name"`
+		Phone       string `json:"phone"`
+		Address     string `json:"address"`
+		Description string `json:"description"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var user models.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// อัปเดตฟิลด์
+	database.DB.Model(&user).Updates(models.User{
+		Name:        input.Name,
+		Phone:       input.Phone,
+		Address:     input.Address,
+		Description: input.Description,
+	})
+
+	c.JSON(http.StatusOK, user)
+}
+
+// อัปโหลดรูปโปรไฟล์
+func UploadAvatar(c *gin.Context) {
+	userID, exists := c.Get("X-User-Id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// ตรวจสอบนามสกุลไฟล์
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only JPG, JPEG, and PNG files are allowed"})
+		return
+	}
+
+	// สร้างชื่อไฟล์ใหม่แบบสุ่มเพื่อป้องกันชื่อซ้ำ
+	newFileName := uuid.New().String() + ext
+	uploadDir := "./uploads/profile" // ต้องสร้างโฟลเดอร์นี้รอไว้
+
+	// บันทึกไฟล์
+	if err := c.SaveUploadedFile(file, filepath.Join(uploadDir, newFileName)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
+	var user models.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// ลบรูปเก่าถ้ามี (ยกเว้นรูป default)
+	if user.AvatarURL != "" && !strings.Contains(user.AvatarURL, "default-avatar.png") {
+		oldFilePath := strings.Replace(user.AvatarURL, "/uploads/profile/", "./uploads/profile/", 1)
+		os.Remove(oldFilePath)
+	}
+
+	// อัปเดต URL ใน DB
+	// ในระบบจริงควรใช้ Domain เต็ม เช่น http://api.pettrack.com/uploads/...
+	avatarURL := fmt.Sprintf("/uploads/profile/%s", newFileName)
+	database.DB.Model(&user).Update("AvatarURL", avatarURL)
+
+	c.JSON(http.StatusOK, gin.H{"url": avatarURL})
+}
 
 func CreateUser(db *gorm.DB, user *models.User) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
@@ -118,13 +225,13 @@ func Login(c *gin.Context) {
 	}
 
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Authorization", token, 3600*24, "", "", false, true)
+	c.SetCookie("Authorization", token, 3600*24, "/", "", false, true)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Login Success"})
 }
 
 func SignOut(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Authorization", "", -1, "", "", false, true)
+	c.SetCookie("Authorization", "", -1, "/", "", false, true)
 	c.JSON(http.StatusOK, gin.H{"message": "Log out success"})
 }

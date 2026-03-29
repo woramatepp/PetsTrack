@@ -1,38 +1,79 @@
-// src/components/Navbar.jsx
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { User, LogOut } from 'lucide-react'; // ใช้ Icon สวยๆ
 
 function Navbar() {
-  const location = useLocation();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
-  const tabs = [
-    { id: 'overview', name: 'Overview', path: '/' },
-    { id: 'myPets', name: 'My Pets', path: '/mypets' },
-  ];
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  // ฟังก์ชันช่วยแสดงรูปโปรไฟล์ หรือ Icon ถ้าไม่มีรูป
+  const renderAvatar = () => {
+    if (user && user.avatar_url) {
+      return (
+        <img
+          src={user.avatar_url} // URL จาก API Gateway
+          alt="User Avatar"
+          className="w-10 h-10 rounded-full object-cover border-2 border-white shadow"
+        />
+      );
+    }
+    return (
+      <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center border-2 border-white shadow">
+        <User className="w-6 h-6 text-slate-500" />
+      </div>
+    );
+  };
 
   return (
-    <nav className="bg-[#fefbea] border-b border-slate-200 text-slate-800">
-      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <Link box-sizing="border-box" to="/" className="text-3xl font-extrabold text-slate-800">PetTrack</Link>
+    <nav className="bg-[#fefbea] shadow-md sticky top-0 z-[1000] p-4">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <Link to="/" className="text-3xl font-extrabold text-teal-600 tracking-tighter">
+          PetTrack
+        </Link>
 
-        <div className="flex space-x-2">
-          {tabs.map(tab => (
-            <Link
-              key={tab.id}
-              to={tab.path}
-              className={`px-5 py-2.5 rounded-full text-base font-semibold transition ${location.pathname === tab.path
-                  ? 'bg-amber-100 text-slate-900'
-                  : 'text-slate-600 hover:bg-slate-100'
-                }`}
-            >
-              {tab.name}
-            </Link>
-          ))}
-        </div>
+        <div className="flex items-center gap-6 font-semibold text-slate-700">
+          <Link to="/" className="hover:text-teal-600 transition">Overview</Link>
 
-        <div className="flex items-center space-x-3">
-          <Link to="/login" className="px-5 py-2 rounded-xl bg-slate-800 text-white font-medium text-sm">Sign In</Link>
-          <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-inner flex items-center justify-center text-lg">👤</div>
+          {user && (
+            <Link to="/add-pet" className="hover:text-teal-600 transition">Add Pet</Link>
+          )}
+
+          {/* แบ่งฝั่งซ้าย-ขวา */}
+          <div className="flex items-center gap-4 pl-4 border-l border-slate-200">
+            {user ? (
+              // ส่วนเมื่อล็อกอินแล้ว
+              <>
+                <Link to="/profile" title="แก้ไขโปรไฟล์">
+                  {renderAvatar()}
+                </Link>
+                <span className="text-sm font-medium text-slate-600 hidden md:inline">
+                  {user.name || user.email}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-red-50 text-red-600 transition"
+                  title="ออกจากระบบ"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span className="hidden md:inline">Logout</span>
+                </button>
+              </>
+            ) : (
+              // ส่วนเมื่อยังไม่ได้ล็อกอิน
+              <Link
+                to="/login"
+                className="px-5 py-2.5 rounded-full bg-teal-500 text-white font-bold hover:bg-teal-600 transition shadow-sm"
+              >
+                Sign In
+              </Link>
+            )}
+          </div>
         </div>
       </div>
     </nav>

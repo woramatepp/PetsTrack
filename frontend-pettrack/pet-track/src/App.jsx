@@ -1,27 +1,51 @@
-// src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Navbar from './components/Navbar';
 import Overview from './pages/Overview';
-import MyPets from './pages/MyPets';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
-import './index.css';
+import Profile from './pages/Profile'; // หน้าใหม่
+import AddPet from './pages/AddPet'; // หน้าใหม่ (หน้า PetType ในรูป)
+
+// Component ช่วยล็อกหน้า (ถ้าไม่ล็อกอิน จะเด้งไปหน้า Sign In)
+const ProtectedRoute = ({ children }) => {
+    const { user } = useAuth();
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+    return children;
+};
+
+// Component ช่วยล็อกหน้า (ถ้าล็อกอินแล้ว จะเข้าหน้า Sign In/Up ไม่ได้)
+const PublicRoute = ({ children }) => {
+    const { user } = useAuth();
+    if (user) {
+        return <Navigate to="/" replace />;
+    }
+    return children;
+};
 
 function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<SignIn />} />
-        <Route path="/signup" element={<SignUp />} />
-        
-        {/* หน้าหลัก */}
-        <Route path="/" element={<Overview />} />
-        <Route path="/mypets" element={<MyPets />} />
-        
-        {/* Redirect กรณีระบุ Path ผิด */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
+    return (
+        <AuthProvider>
+            <Router>
+                <Navbar />
+                <Routes>
+                    {/* หน้าที่ใครๆ ก็เข้าได้ หรือต้องล็อกอินถึงจะเห็นหมุด */}
+                    <Route path="/" element={<Overview />} />
+
+                    {/* หน้าที่ต้องยังไม่ล็อกอิน */}
+                    <Route path="/login" element={<PublicRoute><SignIn /></PublicRoute>} />
+                    <Route path="/signup" element={<PublicRoute><SignUp /></PublicRoute>} />
+
+                    {/* หน้าที่ต้องล็อกอินเท่านั้น */}
+                    <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                    <Route path="/add-pet" element={<ProtectedRoute><AddPet /></ProtectedRoute>} />
+                </Routes>
+            </Router>
+        </AuthProvider>
+    );
 }
 
 export default App;
