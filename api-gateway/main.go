@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -81,6 +82,17 @@ func newProxy(targetURL string, serviceName string) gin.HandlerFunc {
 	target, _ := url.Parse(targetURL)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	// 🌟 เพิ่ม Director เพื่อตัด Prefix ออกก่อนส่งให้ Service ปลายทาง
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		// ถ้ามี /user หรือ /pets ให้ตัดออกเพื่อให้ backend รับ /signup หรือ / เฉยๆ ได้
+		if strings.HasPrefix(req.URL.Path, "/user") {
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/user")
+		} else if strings.HasPrefix(req.URL.Path, "/pets") {
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/pets")
+		}
+	}
 	// ตั้งค่า Circuit Breaker
 	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
 		Name:        serviceName + "-CB",
@@ -166,7 +178,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"}, // พอร์ตของ React Vite
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true, // สำคัญมาก! ต้องเป็น true เพื่อให้ส่ง Cookie ได้
 		MaxAge:           12 * time.Hour,

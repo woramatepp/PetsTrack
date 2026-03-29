@@ -54,29 +54,14 @@ func LoginUser(db *gorm.DB, user *models.User) (string, error) {
 }
 
 func SignUp(c *gin.Context) {
-	// 🌟 ปรับ struct ให้รับแค่ email และ password
+	// 🌟 ปรับให้รับแค่ 2 ฟิลด์ และใช้ตัวพิมพ์เล็กตามมาตรฐาน JSON
 	var body struct {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required,min=8"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		if check, ok := err.(validator.ValidationErrors); ok {
-			for _, e := range check {
-				switch e.Tag() {
-				case "required":
-					c.JSON(http.StatusBadRequest, gin.H{"error": "All required fields must be filled"})
-				case "email":
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email format"})
-				case "min":
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters long"})
-				default:
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input data"})
-				}
-				return
-			}
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอก Email ให้ถูกต้อง และรหัสผ่านอย่างน้อย 8 ตัว"})
 		return
 	}
 
@@ -86,15 +71,15 @@ func SignUp(c *gin.Context) {
 	}
 
 	if err := CreateUser(database.DB, &newUser); err != nil {
-		if strings.Contains(err.Error(), "duplicate key value") || strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Email is already registered"})
+		if strings.Contains(err.Error(), "duplicate key") {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email นี้ถูกใช้งานแล้ว"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not create account."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถสร้างบัญชีได้"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Register Success"})
+	c.JSON(http.StatusCreated, gin.H{"message": "ลงทะเบียนสำเร็จ"})
 }
 
 func Login(c *gin.Context) {

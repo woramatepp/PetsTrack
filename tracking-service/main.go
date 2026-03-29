@@ -25,22 +25,22 @@ import (
 type amqpHeadersCarrier amqp.Table
 
 func (c amqpHeadersCarrier) Get(key string) string {
-    if v, ok := c[key]; ok {
-        return fmt.Sprint(v)
-    }
-    return ""
+	if v, ok := c[key]; ok {
+		return fmt.Sprint(v)
+	}
+	return ""
 }
 
 func (c amqpHeadersCarrier) Set(key string, value string) {
-    c[key] = value
+	c[key] = value
 }
 
 func (c amqpHeadersCarrier) Keys() []string {
-    keys := make([]string, 0, len(c))
-    for k := range c {
-        keys = append(keys, k)
-    }
-    return keys
+	keys := make([]string, 0, len(c))
+	for k := range c {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // โครงสร้างข้อมูลพิกัดที่รับเข้ามา
@@ -122,7 +122,8 @@ func main() {
 }
 
 func initRabbitMQ() {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	rabbitURL := os.Getenv("RABBIT_URL")
+	conn, err := amqp.Dial(rabbitURL)
 	if err != nil {
 		log.Printf("RabbitMQ connection failed: %v", err)
 		return
@@ -145,19 +146,19 @@ func initRabbitMQ() {
 
 func publishToRabbitMQ(ctx context.Context, alert map[string]interface{}) {
 	ctx, span := otel.Tracer("tracking-service").Start(ctx, "RabbitMQ Publish: pet_alerts")
-    defer span.End()
+	defer span.End()
 
 	if rmqChannel == nil {
 		err := fmt.Errorf("RabbitMQ channel ไม่พร้อมใช้งาน")
-        span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
-        log.Println(err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		log.Println(err)
 		log.Println("RabbitMQ channel ไม่พร้อมใช้งาน")
 		return
 	}
-	headers := amqp.Table{} 
-    
-    otel.GetTextMapPropagator().Inject(ctx, amqpHeadersCarrier(headers))
+	headers := amqp.Table{}
+
+	otel.GetTextMapPropagator().Inject(ctx, amqpHeadersCarrier(headers))
 
 	body, _ := json.Marshal(alert)
 	err := rmqChannel.Publish(
@@ -173,7 +174,7 @@ func publishToRabbitMQ(ctx context.Context, alert map[string]interface{}) {
 
 	if err != nil {
 		span.RecordError(err)
-        span.SetStatus(codes.Error, "failed to publish message")
+		span.SetStatus(codes.Error, "failed to publish message")
 		log.Printf("ส่งข้อมูลเข้า RabbitMQ ไม่สำเร็จ: %v", err)
 	} else {
 		fmt.Println("--> Auto Publish:", string(body))
@@ -196,7 +197,7 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	ctx, span := otel.Tracer("tracking-service").Start(ctx, "process_location")
-    defer span.End()
+	defer span.End()
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
@@ -222,7 +223,7 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	_, err = db.ExecContext(ctx, insertQuery, payload.PetID, payload.Latitude, payload.Longitude)
 	if err != nil {
 		span.RecordError(err)
-        span.SetStatus(codes.Error, "failed to insert location")
+		span.SetStatus(codes.Error, "failed to insert location")
 		log.Printf("เกิดข้อผิดพลาดในการบันทึกข้อมูล: %v", err)
 		http.Error(w, "ข้อผิดพลาดเซิร์ฟเวอร์ภายใน", http.StatusInternalServerError)
 		return

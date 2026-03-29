@@ -18,7 +18,7 @@ func main() {
 
 	userRoute := r.Group("/user")
 	{
-		userRoute.POST("/sighup", controllers.SignUp)
+		userRoute.POST("/signup", controllers.SignUp)
 		userRoute.POST("/login", controllers.Login)
 		userRoute.POST("/logout", controllers.SignOut)
 	}

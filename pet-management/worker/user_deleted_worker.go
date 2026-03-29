@@ -10,13 +10,13 @@ import (
 )
 
 func StartUserDeletedWorker() {
-	// 🌟 1. หน่วงเวลาให้ RabbitMQ บูทเสร็จก่อน 10 วินาที
+	// 🌟 เพิ่มบรรทัดนี้เพื่อรอให้ RabbitMQ พร้อมทำงาน
 	time.Sleep(10 * time.Second)
 
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	if err != nil {
-		// 🌟 2. เปลี่ยนจาก log.Fatalf เป็น log.Printf เพื่อไม่ให้แอปหลักดับ
-		return // จบการทำงานของ Worker แค่นี้ แต่ API ปกติยังทำงานต่อได้
+		log.Printf("Worker: ไม่สามารถต่อ RabbitMQ ได้: %v", err)
+		return // จบการทำงานโดยไม่ทำให้แอปหลักพัง
 	}
 
 	ch, err := conn.Channel()

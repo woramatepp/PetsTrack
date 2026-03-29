@@ -16,19 +16,21 @@ function SignUp() {
         setLoading(true);
 
         try {
-            const response = await fetch('/signup', {
+            // แก้ไขจาก '/signup' เป็น '/user/signup' ให้ตรงกับ API Gateway
+            const response = await fetch('/user/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email: email,       // 🌟 ใช้ตัวพิมพ์เล็ก 'email'
+                    email: email,
                     password: password
                 }),
             });
 
-            const data = await response.json(); // บรรทัดนี้มักจะพังถ้า URL ผิด
+            const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Registration failed');
+                const errorText = await response.text();
+                throw new Error(`Error ${response.status}: ${errorText}`);
             }
 
             navigate('/login');
