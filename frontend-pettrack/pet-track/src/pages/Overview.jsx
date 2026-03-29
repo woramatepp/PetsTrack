@@ -3,11 +3,11 @@ import { MapContainer, TileLayer, Marker, Circle, useMapEvents } from 'react-lea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// ส่วนประกอบสำหรับจัดการการคลิกบนแผนที่
+// ส่วนช่วยจัดการการคลิกบนแผนที่เพื่อตั้งพิกัดวงกลม
 function MapEvents({ setFenceCenter }) {
   useMapEvents({
     click(e) {
-      setFenceCenter(e.latlng); // ตั้งค่าจุดศูนย์กลางเมื่อคลิก
+      setFenceCenter(e.latlng);
     },
   });
   return null;
@@ -16,116 +16,147 @@ function MapEvents({ setFenceCenter }) {
 function Overview() {
   const [pet, setPet] = useState(null);
   const [location, setLocation] = useState({ lat: 13.7563, lng: 100.5018 });
-  const [fenceCenter, setFenceCenter] = useState(null); // พิกัดศูนย์กลางวงกลม
-  const [radius, setRadius] = useState(500); // รัศมี (เมตร)
+  const [fenceCenter, setFenceCenter] = useState(null);
+  const [radius, setRadius] = useState(500);
   const [isInZone, setIsInZone] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  // คำนวณว่าอยู่ในโซนหรือไม่
-  useEffect(() => {
-    if (fenceCenter && location) {
-      const petLatLng = L.latLng(location.lat, location.lng);
-      const centerLatLng = L.latLng(fenceCenter.lat, fenceCenter.lng);
-      const distance = petLatLng.distanceTo(centerLatLng); // คำนวณระยะทางเป็นเมตร
-
-      const currentInZone = distance <= radius;
-
-      // แจ้งเตือนเมื่อหลุดออกจากโซนครั้งแรก
-      if (isInZone && !currentInZone) {
-        alert("⚠️ สัตว์เลี้ยงออกนอกโซนปลอดภัย!");
-      }
-      setIsInZone(currentInZone);
-    }
-  }, [location, fenceCenter, radius, isInZone]);
-
-  // (ส่วน useEffect ดึงข้อมูล pet และ polling location เหมือนเดิมของคุณ...)
+  // 1. ดึงข้อมูลสัตว์เลี้ยง
   useEffect(() => {
     const fetchPetData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('/pets', { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await fetch('/pets', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         if (res.ok) {
           const data = await res.json();
-          if (data && data.length > 0) setPet(data[0]);
+          if (data && data.length > 0) {
+            setPet(data[0]); // ดึงตัวแรก (เพราะมีได้ตัวเดียว)
+          }
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Fetch pet error:", e);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchPetData();
   }, []);
 
+  // 2. ดึงพิกัดล่าสุด (Polling ทุก 5 วินาที)
   useEffect(() => {
     if (!pet) return;
+
     const fetchLocation = async () => {
       try {
-        const res = await fetch(`/tracking/latest?pet_id=${pet.ID || pet.id}`);
+        const res = await fetch(`/tracking/latest?pet_id=${pet.ID}`);
         if (res.ok) {
           const data = await res.json();
-          setLocation({ lat: data.latitude, lng: data.longitude });
+          const newLoc = { lat: data.latitude, lng: data.longitude };
+          setLocation(newLoc);
+
+          // ตรวจสอบ Geofence
+          if (fenceCenter) {
+            const petLatLng = L.latLng(newLoc.lat, newLoc.lng);
+            const centerLatLng = L.latLng(fenceCenter.lat, fenceCenter.lng);
+            const distance = petLatLng.distanceTo(centerLatLng);
+            setIsInZone(distance <= radius);
+          }
         }
-      } catch (e) { console.error("Update fail:", e); }
+      } catch (e) {
+        console.error("Update location fail:", e);
+      }
     };
+
+    fetchLocation();
     const interval = setInterval(fetchLocation, 5000);
     return () => clearInterval(interval);
-  }, [pet]);
+  }, [pet, fenceCenter, radius]);
+
+  if (loading) return <div className="p-10 text-center">กำลังโหลดข้อมูล...</div>;
+
+  if (!pet) {
+    return (
+      <div className="p-10 text-center">
+        <h2 className="text-2xl font-bold text-slate-400">ไม่พบข้อมูลสัตว์เลี้ยง</h2>
+        <p className="mt-2 text-slate-500">กรุณาเพิ่มสัตว์เลี้ยงที่หน้า "สัตว์เลี้ยงของฉัน" ก่อนครับ</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto flex flex-col lg:flex-row gap-6">
+      {/* ฝั่งซ้าย: แผนที่ */}
       <div className="flex-1 bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col min-h-[500px]">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">ตำแหน่งปัจจุบัน</h2>
+          <h2 className="text-xl font-bold">แผนที่ติดตาม</h2>
           <div className="flex items-center gap-2">
-            <span className="text-sm">รัศมี: {radius} เมตร</span>
+            <span className="text-sm font-medium">รัศมีปลอดภัย: {radius} ม.</span>
             <input
               type="range" min="100" max="2000" step="100"
               value={radius} onChange={(e) => setRadius(Number(e.target.value))}
-              className="w-32"
+              className="w-32 h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer"
             />
           </div>
         </div>
 
-        <div className="flex-1 rounded-2xl overflow-hidden relative">
+        <div className="flex-1 rounded-2xl overflow-hidden relative border border-slate-100">
           <MapContainer center={[location.lat, location.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <MapEvents setFenceCenter={setFenceCenter} />
 
-            <Marker position={[location.lat, location.lng]} />
+            <Marker position={[location.lat, location.lng]}>
+              {/* ใส่ Popup บอกชื่อสัตว์เลี้ยงบนหัวหมุด */}
+              <Marker position={[location.lat, location.lng]} />
+            </Marker>
 
-            {/* วาดวงกลม Geofence */}
             {fenceCenter && (
               <Circle
                 center={fenceCenter}
                 radius={radius}
-                pathOptions={{ color: isInZone ? '#14b8a6' : '#ef4444', fillColor: isInZone ? '#14b8a6' : '#ef4444' }}
+                pathOptions={{
+                  color: isInZone ? '#14b8a6' : '#ef4444',
+                  fillColor: isInZone ? '#14b8a6' : '#ef4444',
+                  fillOpacity: 0.2
+                }}
               />
             )}
           </MapContainer>
         </div>
+        <p className="mt-2 text-xs text-slate-400">* คลิกบนแผนที่เพื่อตั้งจุดกึ่งกลางโซนปลอดภัย</p>
       </div>
 
-      {pet && (
-        <div className="w-full lg:w-1/3 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-          <div className="text-center">
-            <div className="w-24 h-24 bg-teal-50 text-teal-600 rounded-full mx-auto flex items-center justify-center text-4xl font-bold mb-4">
-              {pet.name.charAt(0)}
-            </div>
-            <h3 className="text-2xl font-bold">{pet.name}</h3>
-            <p className="text-slate-500 mb-6">{pet.type} • {pet.breed}</p>
+      {/* ฝั่งขวา: ข้อมูลสัตว์เลี้ยง */}
+      <div className="w-full lg:w-1/3 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center">
+        <div className="w-28 h-28 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-5xl font-bold mb-4 shadow-inner">
+          {pet.name.charAt(0)}
+        </div>
+        <h3 className="text-3xl font-bold text-slate-800">{pet.name}</h3>
+        <p className="text-slate-500 font-medium text-lg">{pet.type} • {pet.breed}</p>
 
-            <div className="p-4 bg-slate-50 rounded-xl text-left space-y-3">
-              <div>
-                <p className="text-sm text-slate-400">พิกัดล่าสุด:</p>
-                <p className="font-mono font-bold">{location.lat.toFixed(4)}, {location.lng.toFixed(4)}</p>
-              </div>
-              <hr className="border-slate-200" />
-              <div>
-                <p className="text-sm text-slate-400">สถานะโซน:</p>
-                <p className={`font-bold ${isInZone ? 'text-teal-600' : 'text-red-500'}`}>
-                  {fenceCenter ? (isInZone ? "🟢 อยู่ในโซน" : "🔴 อยู่นอกโซน") : "⚪ ยังไม่ได้ตั้งค่าโซน"}
-                </p>
-              </div>
-            </div>
+        <div className="w-full mt-8 space-y-4">
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <p className="text-sm text-slate-400 uppercase tracking-wider font-bold">พิกัดปัจจุบัน</p>
+            <p className="text-xl font-mono font-bold text-slate-700 mt-1">
+              {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+            </p>
+          </div>
+
+          <div className={`p-4 rounded-2xl border transition-colors ${isInZone ? 'bg-teal-50 border-teal-100' : 'bg-red-50 border-red-100'}`}>
+            <p className="text-sm uppercase tracking-wider font-bold text-slate-400">สถานะพื้นที่</p>
+            <p className={`text-xl font-bold mt-1 ${isInZone ? 'text-teal-600' : 'text-red-600'}`}>
+              {fenceCenter ? (isInZone ? "🟢 อยู่ในโซนปลอดภัย" : "🔴 ออกนอกโซนปลอดภัย!") : "⚪ ยังไม่ได้ตั้งค่าโซน"}
+            </p>
           </div>
         </div>
-      )}
+
+        <div className="mt-auto w-full pt-6">
+          <div className="text-xs text-center text-slate-300">
+            อัปเดตข้อมูลล่าสุดเมื่อ: {new Date().toLocaleTimeString()}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
