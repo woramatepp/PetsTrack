@@ -1,35 +1,42 @@
-import React from 'react';
- 
+import { useContext } from 'react';
+import { Link } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
+
 function Header() {
+  const { user, logout } = useContext(AuthContext);
+
   return (
-    <header className="bg-yellow-100">
-      <div className="max-w-6xl mx-auto px-8 py-6">
-        {/* Header container - like pill/rounded box */}
-        <div className="bg-white rounded-full shadow-sm px-8 py-4 flex items-center justify-between">
-          {/* Logo and Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
-              <span className="text-lg">🐾</span>
-            </div>
-            <h1 className="text-xl font-bold text-amber-900">PetTrack</h1>
-          </div>
- 
-          {/* Navigation Tabs */}
-          <div className="flex items-center gap-8 flex-1 px-6">
-            <button className="text-amber-700 font-medium text-sm hover:text-amber-900">
-              Overview
+    <header className="flex justify-between items-center p-4 bg-white shadow-md">
+      <Link to="/overview" className="text-xl font-bold">PetsTrack</Link>
+
+      <div className="flex items-center gap-4">
+        {user ? (
+          <>
+            <button
+              onClick={logout}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              Logout
             </button>
-            <button className="text-gray-500 font-medium text-sm hover:text-gray-700">
-              My Pets
-            </button>
-          </div>
- 
-          {/* Profile icon */}
-          <div className="w-8 h-8 bg-gray-300 rounded-full"></div>
-        </div>
+            <Link to="/profile">
+              <img
+                src={user.profileImage || "/default-avatar.png"}
+                alt="Profile"
+                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+              />
+            </Link>
+          </>
+        ) : (
+          <Link
+            to="/signin"
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Sign In
+          </Link>
+        )}
       </div>
     </header>
   );
 }
- 
+
 export default Header;

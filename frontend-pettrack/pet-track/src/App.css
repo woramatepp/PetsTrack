@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+@import "leaflet/dist/leaflet.css";
+
+/* กำหนดขนาดให้ Container ของแผนที่ */
+.leaflet-container {
+    width: 100%;
+    height: 500px;
+    /* หรือความสูงตามต้องการ */
+    border-radius: 8px;
+}

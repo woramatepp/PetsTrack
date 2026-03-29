@@ -1,26 +1,57 @@
-// src/components/MapSection.jsx
-import React from 'react';
+import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
 
-function MapSection({ petName = "Luna", location = "Home" }) {
-  // This is a placeholder for a real map
+// แก้บั๊กรูปหมุดของ Leaflet ไม่แสดงใน React
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+let DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+});
+L.Marker.prototype.options.icon = DefaultIcon;
+
+function MapSection() {
+  const [locations, setLocations] = useState([]);
+
+  useEffect(() => {
+    // จำลองการดึงพิกัดจาก DB ของคุณ
+    // ของจริงใช้ axios.get('/api/locations') หรือ fetch()
+    const fetchLocationsFromDB = async () => {
+      // Mock data จำลองข้อมูลจาก DB
+      const dbData = [
+        { id: 1, petName: 'น้องหมา A', lat: 13.7563, lng: 100.5018 }, // กรุงเทพ
+        { id: 2, petName: 'น้องแมว B', lat: 13.7663, lng: 100.5118 }
+      ];
+      setLocations(dbData);
+    };
+
+    fetchLocationsFromDB();
+  }, []);
+
+  // จุดกึ่งกลางเริ่มต้น (เช่น กรุงเทพฯ)
+  const defaultCenter = [13.7563, 100.5018];
+
   return (
-    <div className="relative w-full h-[38rem] bg-slate-200 rounded-3xl overflow-hidden shadow-lg border-4 border-white flex flex-col items-center justify-center">
-      {/* Map Content Placeholder (pin, zone, etc.) */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center text-slate-600 space-y-4">
-        {/* Placeholder Map pin and circle */}
-        <div className="relative w-28 h-28 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full border-4 border-amber-300 opacity-80 scale-[2]"></div>
-            <div className="absolute inset-0 rounded-full bg-amber-200 opacity-60 scale-125"></div>
-            <div className="w-8 h-8 rounded-full bg-amber-400 border-4 border-white shadow-xl flex items-center justify-center text-xl">📍</div>
-        </div>
-        <p className="text-3xl font-extrabold text-slate-800">{petName} ({location})</p>
-        <p className="text-lg text-slate-500 font-semibold pt-1">Zone Status: Active</p>
-        <p className="text-gray-500 font-mono text-sm">( Real Map view placeholder )</p>
-      </div>
-      {/* Background graphic simulation */}
-      <div className="absolute inset-0 grid grid-cols-12 gap-0 opacity-10">
-        {[...Array(144)].map((_, i) => <div key={i} className="border border-gray-400"></div>)}
-      </div>
+    <div className="my-6">
+      <h2 className="text-xl font-bold mb-4">ตำแหน่งสัตว์เลี้ยงล่าสุด</h2>
+      <MapContainer center={defaultCenter} zoom={12} scrollWheelZoom={true}>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {/* วนลูปสร้างหมุดจากข้อมูล DB */}
+        {locations.map((loc) => (
+          <Marker key={loc.id} position={[loc.lat, loc.lng]}>
+            <Popup>
+              {loc.petName} <br /> พิกัด: {loc.lat}, {loc.lng}
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
     </div>
   );
 }

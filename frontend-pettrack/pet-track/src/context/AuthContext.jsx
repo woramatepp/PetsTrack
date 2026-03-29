@@ -1,60 +1,47 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 
-const AuthContext = createContext();
+// 1. สร้าง Context
+export const AuthContext = createContext();
 
-// Hook ง่ายๆ สำหรับเรียกใช้ใน Component อื่น
-export const useAuth = () => useContext(AuthContext);
+// 2. สร้าง Hook เอาไว้ใช้ในไฟล์อื่นๆ
+export const useAuth = () => {
+    return useContext(AuthContext);
+};
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // สำคัญมาก เพื่อรอเช็ค localStorage ก่อน
 
-    // ตรวจสอบสถานะการล็อกอินเมื่อเปิดเว็บครั้งแรก
+    // useEffect จะทำงานตอนที่เปิดเว็บขึ้นมาครั้งแรก
     useEffect(() => {
-        checkLoggedIn();
+        // ดึงข้อมูลที่เคยบันทึกไว้กลับมา
+        const storedToken = localStorage.getItem('token');
+        const storedUser = localStorage.getItem('user');
+
+        if (storedToken && storedUser) {
+            setUser(JSON.parse(storedUser)); // คืนค่า State user กลับมา
+        }
+        setLoading(false); // เช็คเสร็จแล้ว ค่อยอนุญาตให้แอปทำงานต่อ
     }, []);
 
-    const checkLoggedIn = async () => {
-        try {
-            const response = await fetch('/user/me', {
-                //credentials: 'include' // สำคัญ! ส่ง Cookie ไปด้วย
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setUser(data); // เก็บข้อมูลผู้ใช้ลง State
-            } else {
-                setUser(null);
-            }
-        } catch (error) {
-            console.error("Auth check failed:", error);
-            setUser(null);
-        } finally {
-            setLoading(false);
-        }
+    // ฟังก์ชันสำหรับ Login (ให้เอาไปเรียกใช้ตอนยิง API สำเร็จ)
+    const login = (userData, token) => {
+        localStorage.setItem('token', token); // เก็บ Token ไว้ใช้กับ API ต่อไป
+        localStorage.setItem('user', JSON.stringify(userData)); // เก็บข้อมูล User
+        setUser(userData); // อัปเดต State ให้แอปเปลี่ยนหน้าตา
     };
 
-    const login = (userData) => {
-        setUser(userData);
+    // ฟังก์ชันสำหรับ Logout (เรียกตอนกดปุ่ม Logout)
+    const logout = () => {
+        localStorage.removeItem('token'); // ลบทิ้ง
+        localStorage.removeItem('user');  // ลบทิ้ง
+        setUser(null); // เคลียร์ State
     };
-
-    const logout = async () => {
-        try {
-            await fetch('/user/logout', { method: 'POST' });
-        } catch (error) {
-            console.error("Logout failed:", error);
-        }
-        setUser(null);
-        // สามารถใช้ window.location.href = '/login' เพื่อ force reload ได้
-    };
-
-    // ป้องกันการ Render หน้าเว็บก่อนจะเช็คสถานะเสร็จ
-    if (loading) {
-        return <div className="min-h-screen flex items-center justify-center bg-[#e8dcc8]">Loading...</div>;
-    }
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, checkLoggedIn }}>
-            {children}
+        <AuthContext.Provider value={{ user, login, logout }}>
+            {/* ต้องรอให้โหลด localStorage เสร็จก่อน ถึงจะ render หน้าเว็บ ไม่งั้นมันจะเด้งไปหน้า login ก่อน */}
+            {!loading && children}
         </AuthContext.Provider>
     );
 };
