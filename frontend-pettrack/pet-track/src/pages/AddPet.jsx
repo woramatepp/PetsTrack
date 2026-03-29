@@ -1,50 +1,29 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function AddPet() {
     const navigate = useNavigate();
 
-    // เก็บประเภทที่เลือก
-    const [selectedType, setSelectedType] = useState('');
-
-    // เก็บข้อมูลฟอร์ม
-    const [petData, setPetData] = useState({
-        name: '',
-        breed: '',
-        age: '',
-        weight: ''
-    });
-
-    // รายการประเภทสัตว์เลี้ยง (สามารถเพิ่มรูปภาพไอคอนได้)
-    const petTypes = [
-        { id: 'dog', label: 'สุนัข', icon: '🐶' },
-        { id: 'cat', label: 'แมว', icon: '🐱' },
-        { id: 'bird', label: 'นก', icon: '🐦' },
-        { id: 'other', label: 'อื่นๆ', icon: '🐾' }
-    ];
-
-    const handleInputChange = (e) => {
-        setPetData({ ...petData, [e.target.name]: e.target.value });
-    };
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        if (!selectedType) {
-            alert('กรุณาเลือกประเภทสัตว์เลี้ยงก่อนครับ');
-            return;
-        }
-
-        const finalData = {
-            ...petData,
-            type: selectedType
+    useEffect(() => {
+        const checkExistingPet = async () => {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/pets', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                // 🌟 ถ้ามีสัตว์เลี้ยงอยู่แล้ว ให้ดีดกลับหน้าแรกทันที
+                if (data && data.length > 0) {
+                    alert("คุณมีสัตว์เลี้ยงในระบบอยู่แล้ว");
+                    navigate('/');
+                }
+            }
         };
-
-        console.log('ข้อมูลที่จะส่งไป API:', finalData);
-        alert('บันทึกข้อมูลสัตว์เลี้ยงสำเร็จ!');
-        navigate('/'); // กลับไปหน้า Overview
-    };
+        checkExistingPet();
+    }, [navigate]);
 
     return (
+        
         <div className="min-h-screen bg-gray-50 py-10 px-4">
             <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-lg p-8">
                 <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">เพิ่มสัตว์เลี้ยงตัวใหม่</h2>
@@ -60,8 +39,8 @@ function AddPet() {
                                     key={type.id}
                                     onClick={() => setSelectedType(type.id)}
                                     className={`cursor-pointer rounded-xl border-2 p-4 flex flex-col items-center justify-center transition-all duration-200 ${selectedType === type.id
-                                            ? 'border-blue-500 bg-blue-50 shadow-md transform scale-105'
-                                            : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                                        ? 'border-blue-500 bg-blue-50 shadow-md transform scale-105'
+                                        : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                                         }`}
                                 >
                                     <span className="text-4xl mb-2">{type.icon}</span>
