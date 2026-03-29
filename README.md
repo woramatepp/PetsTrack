@@ -1,4 +1,4 @@
--ENV
+ENV
 # Database
 DB_USER=postgres
 DB_PASSWORD=postgres
@@ -20,7 +20,9 @@ NOTI_PORT=8084
 
 # Database ของแต่ละ Service
 AUTH_DB_DSN=host=postgres port=5432 user=postgres password=postgres dbname=auth_db sslmode=disable
+
 PET_DB_DSN=host=postgres port=5432 user=postgres password=postgres dbname=pet_db sslmode=disable
+
 TRACKING_DB_DSN=host=postgres port=5432 user=postgres password=postgres dbname=tracking_db sslmode=disable
 
 # Ngrok 
