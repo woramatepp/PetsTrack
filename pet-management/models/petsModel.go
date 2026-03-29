@@ -9,8 +9,6 @@ type Pet struct {
 	Gender    string  `json:"gender"`
 	Age       int     `json:"age"`
 	Weight    float64 `json:"weight"`
-	Notes     string  `json:"notes"`
-	ImageURL  string  `json:"image_url"`
 	UserID    uint    `json:"user_id"`  // เจ้าของ
 	Latitude  float64 `json:"latitude"` // พิกัดล่าสุด
 	Longitude float64 `json:"longitude"`

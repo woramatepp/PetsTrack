@@ -3,14 +3,11 @@ package controllers
 import (
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 
 	"pet-management/database"
 	"pet-management/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"go.opentelemetry.io/otel"
 )
@@ -37,7 +34,6 @@ func CreatePet(c *gin.Context) {
 		Gender string  `form:"gender"`
 		Age    int     `form:"age"`
 		Weight float64 `form:"weight"`
-		Notes  string  `form:"notes"`
 	}
 
 	if err := c.ShouldBind(&input); err != nil {
@@ -51,25 +47,10 @@ func CreatePet(c *gin.Context) {
 		Gender: input.Gender,
 		Age:    input.Age,
 		Weight: input.Weight,
-		Notes:  input.Notes,
 		UserID: userID,
 		// กำหนดพิกัดเริ่มต้น (สมมติเป็นจุดเริ่มต้นการติดตาม)
 		Latitude:  13.7563,
 		Longitude: 100.5018,
-	}
-
-	// 🌟 จัดการอัปโหลดรูป (Save ลง disk)
-	file, err := c.FormFile("image")
-	if err == nil {
-		ext := strings.ToLower(filepath.Ext(file.Filename))
-		if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
-			newFileName := uuid.New().String() + ext
-			uploadDir := "./uploads/pets" // ⚠️ ต้องสร้างโฟลเดอร์นี้ไว้ในโปรเจกต์
-
-			if err := c.SaveUploadedFile(file, filepath.Join(uploadDir, newFileName)); err == nil {
-				pet.ImageURL = fmt.Sprintf("/uploads/pets/%s", newFileName)
-			}
-		}
 	}
 
 	if err := database.DB.WithContext(ctx).Create(&pet).Error; err != nil {
@@ -88,7 +69,7 @@ func GetAllPetLocations(c *gin.Context) {
 
 	var pets []models.Pet
 	// ดึงเฉพาะข้อมูลที่จำเป็นไปแสดงบนหมุดแผนที่
-	if err := database.DB.WithContext(ctx).Select("id, name, type, image_url, latitude, longitude").Find(&pets).Error; err != nil {
+	if err := database.DB.WithContext(ctx).Select("id, name, type, latitude, longitude").Find(&pets).Error; err != nil {
 		span.RecordError(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch locations"})
 		return
@@ -150,7 +131,6 @@ func UpdatePet(c *gin.Context) {
 		Gender string  `form:"gender"`
 		Age    int     `form:"age"`
 		Weight float64 `form:"weight"`
-		Notes  string  `form:"notes"`
 	}
 
 	if err := c.ShouldBind(&input); err != nil {
@@ -165,16 +145,6 @@ func UpdatePet(c *gin.Context) {
 		Gender: input.Gender,
 		Age:    input.Age,
 		Weight: input.Weight,
-		Notes:  input.Notes,
-	}
-
-	// 🌟 อัปเดตรูปใหม่ถ้ามีการส่งมา
-	file, err := c.FormFile("image")
-	if err == nil {
-		newFileName := uuid.New().String() + filepath.Ext(file.Filename)
-		if err := c.SaveUploadedFile(file, filepath.Join("./uploads/pets", newFileName)); err == nil {
-			updates.ImageURL = fmt.Sprintf("/uploads/pets/%s", newFileName)
-		}
 	}
 
 	database.DB.WithContext(ctx).Model(&pet).Updates(updates)

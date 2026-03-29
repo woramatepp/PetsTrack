@@ -138,8 +138,8 @@ func main() {
 	// http.HandleFunc("/", serveFrontend)
 	// http.HandleFunc("/tracking/location", handleLocation)
 	http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
-	http.Handle("/tracking/location", otelhttp.NewHandler(http.HandlerFunc(handleLocation), "handleLocation"))
-	http.Handle("/tracking/latest", otelhttp.NewHandler(http.HandlerFunc(getLatestLocation), "getLatestLocation"))
+	http.Handle("/location", otelhttp.NewHandler(http.HandlerFunc(handleLocation), "handleLocation"))
+	http.Handle("/latest", otelhttp.NewHandler(http.HandlerFunc(getLatestLocation), "getLatestLocation"))
 
 	fmt.Println("Tracking Service กำลังรันอยู่ที่พอร์ต 8081...")
 	log.Fatal(http.ListenAndServe(":8081", nil))
