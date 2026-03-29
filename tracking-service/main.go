@@ -137,7 +137,7 @@ func main() {
 	// เพิ่ม Endpoint
 	// http.HandleFunc("/", serveFrontend)
 	// http.HandleFunc("/tracking/location", handleLocation)
-	// http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
+	http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
 	http.Handle("/tracking/location", otelhttp.NewHandler(http.HandlerFunc(handleLocation), "handleLocation"))
 	http.Handle("/tracking/latest", otelhttp.NewHandler(http.HandlerFunc(getLatestLocation), "getLatestLocation"))
 
@@ -145,6 +145,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
+// --- แก้ไข initRabbitMQ ---
 func initRabbitMQ() {
 	rabbitURL := os.Getenv("RABBIT_URL")
 	conn, err := amqp.Dial(rabbitURL)
@@ -159,37 +160,35 @@ func initRabbitMQ() {
 		return
 	}
 
-	_, err = ch.QueueDeclare("pet_alerts", true, false, false, false, nil)
+	// 🌟 เปลี่ยนจาก QueueDeclare เป็น ExchangeDeclare ชนิด topic
+	err = ch.ExchangeDeclare("system_events_exchange", "topic", true, false, false, false, nil)
 	if err != nil {
-		log.Printf("Queue declaration failed: %v", err)
+		log.Printf("Exchange declaration failed: %v", err)
 		return
 	}
 	rmqChannel = ch
-	fmt.Println("RabbitMQ Initialized Successfully")
+	fmt.Println("RabbitMQ Initialized Successfully (Exchange: system_events_exchange)")
 }
 
-func publishToRabbitMQ(ctx context.Context, alert map[string]interface{}) {
-	ctx, span := otel.Tracer("tracking-service").Start(ctx, "RabbitMQ Publish: pet_alerts")
+// --- แก้ไข publishToRabbitMQ ---
+// เปลี่ยน parameter มารับ routingKey ด้วย
+func publishToRabbitMQ(ctx context.Context, routingKey string, payload map[string]interface{}) {
+	ctx, span := otel.Tracer("tracking-service").Start(ctx, "RabbitMQ Publish: "+routingKey)
 	defer span.End()
 
 	if rmqChannel == nil {
-		err := fmt.Errorf("RabbitMQ channel ไม่พร้อมใช้งาน")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		log.Println(err)
 		log.Println("RabbitMQ channel ไม่พร้อมใช้งาน")
 		return
 	}
 	headers := amqp.Table{}
-
 	otel.GetTextMapPropagator().Inject(ctx, amqpHeadersCarrier(headers))
 
-	body, _ := json.Marshal(alert)
+	body, _ := json.Marshal(payload)
 	err := rmqChannel.Publish(
-		"",           // exchange
-		"pet_alerts", // routing key (ชื่อคิว)
-		false,        // mandatory
-		false,        // immediate
+		"system_events_exchange", // 🌟 ส่งเข้า Exchange แทน
+		routingKey,               // 🌟 ใช้ Routing Key ที่ส่งมา
+		false,
+		false,
 		amqp.Publishing{
 			Headers:     headers,
 			ContentType: "application/json",
@@ -197,11 +196,9 @@ func publishToRabbitMQ(ctx context.Context, alert map[string]interface{}) {
 		})
 
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to publish message")
 		log.Printf("ส่งข้อมูลเข้า RabbitMQ ไม่สำเร็จ: %v", err)
 	} else {
-		fmt.Println("--> Auto Publish:", string(body))
+		fmt.Println("--> Auto Publish [", routingKey, "]:", string(body))
 	}
 }
 
@@ -218,11 +215,6 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-	ctx := r.Context()
-
-	ctx, span := otel.Tracer("tracking-service").Start(ctx, "process_location")
-	defer span.End()
-
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -233,6 +225,11 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+	ctx, span := otel.Tracer("tracking-service").Start(ctx, "process_location")
+	defer span.End()
+
+	// 1. รับค่าและ Decode JSON ก่อน
 	var payload LocationPayload
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -243,6 +240,7 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 	jsonData, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Println("ได้รับพิกัดใหม่:\n", string(jsonData))
 
+	// 2. บันทึกลง Database ของ Tracking
 	insertQuery := `INSERT INTO pet_locations (pet_id, latitude, longitude) VALUES ($1, $2, $3)`
 	_, err = db.ExecContext(ctx, insertQuery, payload.PetID, payload.Latitude, payload.Longitude)
 	if err != nil {
@@ -253,8 +251,16 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ownerID := r.Header.Get("X-User-Id")
+	// 3. ส่งข้อมูลไปให้ Pet Management อัปเดตพิกัด (ฟีเจอร์ใหม่)
+	locationUpdate := map[string]interface{}{
+		"pet_id":    payload.PetID,
+		"latitude":  payload.Latitude,
+		"longitude": payload.Longitude,
+	}
+	publishToRabbitMQ(ctx, "pet.location.updated", locationUpdate)
 
+	// 4. ตรวจสอบและส่ง Notification (ฟีเจอร์เดิม)
+	ownerID := r.Header.Get("X-User-Id")
 	if ownerID != "" {
 		status := "Savezone"
 		message := "อัปเดตพิกัดล่าสุด"
@@ -273,9 +279,12 @@ func handleLocation(w http.ResponseWriter, r *http.Request) {
 			"latitude":  payload.Latitude,
 			"longitude": payload.Longitude,
 		}
-		publishToRabbitMQ(ctx, alert)
+
+		// 🌟 เติม Routing Key "pet.alerts" ลงไปเพื่อให้ตรงกับโครงสร้างใหม่
+		publishToRabbitMQ(ctx, "pet.alerts", alert)
 	}
 
+	// 5. ส่ง Response กลับไปให้ Client
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{

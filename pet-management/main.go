@@ -49,6 +49,7 @@ func main() {
 
 	// 6. เริ่มการทำงานของ Worker (RabbitMQ) ใน Background
 	go workers.StartUserDeletedWorker()
+	go workers.StartLocationUpdateWorker()
 
 	// 7. จัดการเรื่อง Port และรัน Service
 	port := os.Getenv("PORT")

@@ -22,11 +22,14 @@ import (
 )
 
 type PetAlert struct {
-	PetID   string `json:"pet_id"`
-	PetName string `json:"pet_name"`
-	OwnerID string `json:"owner_id"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	// 1️⃣ เปลี่ยน PetID เป็น int และเพิ่มพิกัดให้ตรงกับ Payload ของ tracking-service
+	PetID     int     `json:"pet_id"`
+	PetName   string  `json:"pet_name"`
+	OwnerID   string  `json:"owner_id"`
+	Status    string  `json:"status"`
+	Message   string  `json:"message"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
@@ -77,7 +80,6 @@ func (a AMQPHeadersCarrier) Get(key string) string {
 
 func (a AMQPHeadersCarrier) Set(key string, value string) {}
 
-// 1️⃣ แก้ไข Keys() ให้ส่งคืนรายชื่อ Key ทั้งหมดที่มีใน Headers
 func (a AMQPHeadersCarrier) Keys() []string {
 	keys := make([]string, 0, len(a))
 	for k := range a {
@@ -88,7 +90,6 @@ func (a AMQPHeadersCarrier) Keys() []string {
 
 // --- WebSocket ---
 func handleConnections(w http.ResponseWriter, r *http.Request) {
-	// ... (โค้ดเดิมของคุณ ไม่มีการเปลี่ยนแปลง) ...
 	ownerID := r.URL.Query().Get("owner_id")
 	if ownerID == "" {
 		log.Println("Connection rejected: missing owner_id")
@@ -136,24 +137,21 @@ func sendAlertToOwner(ctx context.Context, alert PetAlert) {
 	}
 }
 
-// 2️⃣ แยกฟังก์ชันจัดการข้อความ 1 ชิ้นออกมา เพื่อให้ใช้ defer span.End() ได้ง่ายขึ้น
 func processRabbitMQMessage(d amqp.Delivery) {
-	// Extract Trace ID ออกมาจาก RabbitMQ Header
 	ctx := otel.GetTextMapPropagator().Extract(context.Background(), AMQPHeadersCarrier(d.Headers))
 
-	// สร้าง Span รับช่วงต่อ
 	ctx, span := tracer.Start(ctx, "process-pet-alert")
 	defer span.End()
 
 	var alert PetAlert
 	if err := json.Unmarshal(d.Body, &alert); err == nil {
 		span.SetAttributes(
-			attribute.String("pet_id", alert.PetID),
+			attribute.Int("pet_id", alert.PetID), // เปลี่ยนเป็น attribute.Int เพราะ PetID เป็น int แล้ว
 			attribute.String("owner_id", alert.OwnerID),
 		)
 
-		log.Printf("Alert received for pet: %s", alert.PetName)
-		sendAlertToOwner(ctx, alert) // ส่ง ctx ไปต่อที่ WebSocket sender
+		log.Printf("Alert received for pet ID %d: %s", alert.PetID, alert.Message)
+		sendAlertToOwner(ctx, alert)
 	} else {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "JSON unmarshal failed")
@@ -162,7 +160,7 @@ func processRabbitMQMessage(d amqp.Delivery) {
 }
 
 func main() {
-	time.Sleep(15 * time.Second) // รอ RabbitMQ
+	time.Sleep(15 * time.Second)
 	shutdown := initTracer("notification-service")
 	defer shutdown(context.Background())
 
@@ -186,23 +184,21 @@ func main() {
 	}
 	defer ch.Close()
 
-	// 1. ประกาศ Exchange แบบ Topic (ชื่อเดียวกับฝั่ง Pet Management)
 	err = ch.ExchangeDeclare(
 		"system_events_exchange",
 		"topic",
 		true, false, false, false, nil,
 	)
 
-	// 2. สร้างคิวแบบสุ่มชื่อ (สำหรับระบบ Notification เราไม่สนชื่อคิว สนแค่ข้อมูลที่ไหลมา)
 	q, err := ch.QueueDeclare("", false, false, true, false, nil)
 
-	// 3. ผูกคิวเข้ากับ Routing Key "alert.*"
-	// แปลว่ามันจะรับข้อความเช่น alert.out_of_zone, alert.low_battery เป็นต้น (ตรงนี้คือความซับซ้อนที่ได้คะแนน)
-	err = ch.QueueBind(q.Name, "alert.*", "system_events_exchange", false, nil)
+	// 2️⃣ เปลี่ยน Routing Key ตรงนี้เป็น "pet.alerts" ให้ตรงกับที่ tracking ส่งมา
+	// หรือจะใช้ "pet.*" เพื่อรับทุกอีเวนต์ที่ขึ้นต้นด้วย pet ก็ได้
+	err = ch.QueueBind(q.Name, "pet.alerts", "system_events_exchange", false, nil)
 
 	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
 
-	log.Println("🔔 Notification-Service: Waiting for 'alert.*' messages...")
+	log.Println("🔔 Notification-Service: Waiting for 'pet.alerts' messages...")
 
 	forever := make(chan bool)
 	go func() {

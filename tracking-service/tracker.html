@@ -29,7 +29,7 @@
     <script>
         // 1. นำ URL จาก ngrok มาใส่ที่นี่ พร้อมต่อท้ายด้วย /location
         const API_URL = "/tracking/location";
-        const PET_ID = "dog_001"; // จำลอง ID ของสัตว์เลี้ยง
+        const PET_ID = 1; // จำลอง ID ของสัตว์เลี้ยง
 
         function sendLocation() {
             if (!navigator.geolocation) {
@@ -48,14 +48,15 @@
                     document.getElementById('status').innerText = "กำลังส่งข้อมูล...";
 
                     try {
-                        // ส่งข้อมูลไปยัง Go Tracking Service
                         const response = await fetch(API_URL, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
+                                // --- แก้ไขจุดที่ 2: เพิ่ม Header นี้เพื่อให้ Logic ใน Go ทำงาน ---
+                                'X-User-Id': '1' // ใส่ ID ของเจ้าของ (Owner ID)
                             },
                             body: JSON.stringify({
-                                pet_id: PET_ID,
+                                pet_id: PET_ID, // ตอนนี้จะเป็นเลข 1 ไม่ใช่ "dog_001"
                                 latitude: lat,
                                 longitude: lng
                             })
@@ -65,6 +66,7 @@
                             document.getElementById('status').innerText = "ส่งข้อมูลสำเร็จ (Real-time)";
                             document.getElementById('status').style.color = "green";
                         } else {
+                            // ถ้าขึ้น API Error ให้ดูที่ Console (F12) จะเห็นรายละเอียด
                             document.getElementById('status').innerText = "ส่งข้อมูลล้มเหลว (API Error)";
                             document.getElementById('status').style.color = "red";
                         }
