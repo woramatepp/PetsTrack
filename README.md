@@ -8,6 +8,7 @@ DB_PORT=5432
 
 # pgAdmin
 PGADMIN_EMAIL=admin@admin.com
+
 PGADMIN_PASSWORD=admin
 
 # JWT Token
