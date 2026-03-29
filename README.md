@@ -26,4 +26,4 @@ PET_DB_DSN=host=postgres port=5432 user=postgres password=postgres dbname=pet_db
 TRACKING_DB_DSN=host=postgres port=5432 user=postgres password=postgres dbname=tracking_db sslmode=disable
 
 # Ngrok 
-NGROK_AUTHTOKEN=3BchNDht1zyzmbbOGYW29VteS7v_pnQQRa5STrC6D6qBa8AT
+NGROK_AUTHTOKEN=xxx
