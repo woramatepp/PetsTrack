@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
@@ -161,6 +162,15 @@ func main() {
 	defer shutdown(context.Background())
 
 	r := gin.Default()
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"}, // พอร์ตของ React Vite
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true, // สำคัญมาก! ต้องเป็น true เพื่อให้ส่ง Cookie ได้
+		MaxAge:           12 * time.Hour,
+	}))
 
 	r.Use(otelgin.Middleware("api-gateway"))
 

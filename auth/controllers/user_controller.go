@@ -54,10 +54,10 @@ func LoginUser(db *gorm.DB, user *models.User) (string, error) {
 }
 
 func SignUp(c *gin.Context) {
+	// 🌟 ปรับ struct ให้รับแค่ email และ password
 	var body struct {
-		Email           string `json:"email" binding:"required,email"`
-		Password        string `json:"password" binding:"required,min=8"`
-		ConfirmPassword string `json:"confirm_password" binding:"required,eqfield=Password"`
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=8"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -70,8 +70,6 @@ func SignUp(c *gin.Context) {
 					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email format"})
 				case "min":
 					c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters long"})
-				case "eqfield":
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Passwords do not match"})
 				default:
 					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input data"})
 				}
@@ -92,7 +90,7 @@ func SignUp(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "Email is already registered"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not create account. Please try again later."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not create account."})
 		return
 	}
 

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"os"
 	"auth/controllers"
 	"auth/database"
 	"auth/initializers"
-)
+	"os"
 
+	"github.com/gin-gonic/gin"
+)
 
 func main() {
 
@@ -16,9 +16,9 @@ func main() {
 
 	r := gin.Default()
 
-	userRoute := r.Group("/user") 
+	userRoute := r.Group("/user")
 	{
-		userRoute.POST("/register", controllers.SignUp) 
+		userRoute.POST("/sighup", controllers.SignUp)
 		userRoute.POST("/login", controllers.Login)
 		userRoute.POST("/logout", controllers.SignOut)
 	}

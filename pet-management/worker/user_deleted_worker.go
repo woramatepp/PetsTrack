@@ -4,24 +4,28 @@ import (
 	"log"
 	"pet-management/database"
 	"pet-management/models"
+	"time" // <-- อย่าลืม import time
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// ฟังก์ชันนี้จะทำงานอยู่เบื้องหลัง (Background) ตลอดเวลาเพื่อรอรับคำสั่งลบ User
 func StartUserDeletedWorker() {
+	// 🌟 1. หน่วงเวลาให้ RabbitMQ บูทเสร็จก่อน 10 วินาที
+	time.Sleep(10 * time.Second)
+
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	if err != nil {
-		log.Fatalf("Worker: Failed to connect to RabbitMQ: %v", err)
+		// 🌟 2. เปลี่ยนจาก log.Fatalf เป็น log.Printf เพื่อไม่ให้แอปหลักดับ
+		return // จบการทำงานของ Worker แค่นี้ แต่ API ปกติยังทำงานต่อได้
 	}
-	// ไม่ปิด conn ทันที เพราะต้องให้มันทำงานไปตลอด
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Worker: Failed to open a channel: %v", err)
+		log.Printf("❌ Worker: Failed to open a channel: %v", err)
+		return
 	}
 
-	// ประกาศ Exchange (ตัวเดียวกับระบบหลัก เพื่อให้ใช้ร่วมกันได้)
+	// ... (โค้ดส่วนที่เหลือด้านล่างปล่อยไว้เหมือนเดิมได้เลยครับ)
 	err = ch.ExchangeDeclare("system_events_exchange", "topic", true, false, false, false, nil)
 
 	// สร้าง Queue สำหรับจัดการ Data Consistency โดยเฉพาะ

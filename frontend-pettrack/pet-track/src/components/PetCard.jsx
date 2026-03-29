@@ -1,23 +1,19 @@
+// src/components/PetCard.jsx
 import React from 'react';
- 
+
 function PetCard({ petImage }) {
+  // Use a default image if none is provided
+  const imageUrl = petImage || 'https://images.unsplash.com/photo-1574158622682-e40e69881006?w=500&h=400&fit=crop';
+  
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-lg border-2 border-yellow-100">
-      {/* Pet Image */}
-      <div className="relative w-full bg-gray-100 overflow-hidden" style={{ paddingBottom: '100%' }}>
-        <img
-          src={petImage}
-          alt="Pet"
-          className="absolute inset-0 w-full h-full object-cover rounded-xl"
-          style={{
-            margin: '8px',
-            width: 'calc(100% - 16px)',
-            height: 'calc(100% - 16px)',
-          }}
-        />
-      </div>
+    <div className="w-full h-auto rounded-3xl overflow-hidden shadow-md">
+      <img 
+        src={imageUrl} 
+        alt="Pet" 
+        className="w-full h-full object-cover"
+      />
     </div>
   );
 }
- 
+
 export default PetCard;
