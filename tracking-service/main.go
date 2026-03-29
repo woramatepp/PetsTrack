@@ -45,7 +45,7 @@ func (c amqpHeadersCarrier) Keys() []string {
 
 // โครงสร้างข้อมูลพิกัดที่รับเข้ามา
 type LocationPayload struct {
-	PetID     string  `json:"pet_id"`
+	PetID     int     `json:"pet_id"`
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 }
@@ -76,6 +76,29 @@ func initTracer(serviceName string) func(context.Context) error {
 	return tp.Shutdown
 }
 
+// ฟังก์ชันสำหรับดึงพิกัดล่าสุดของสัตว์เลี้ยง
+func getLatestLocation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	petID := r.URL.Query().Get("pet_id")
+
+	if petID == "" {
+		http.Error(w, `{"error":"pet_id is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	var payload LocationPayload
+	// Query หาแถวล่าสุดของสัตว์เลี้ยงตัวนั้น
+	err := db.QueryRowContext(r.Context(),
+		"SELECT pet_id, latitude, longitude FROM pet_locations WHERE pet_id = $1 ORDER BY timestamp DESC LIMIT 1",
+		petID).Scan(&payload.PetID, &payload.Latitude, &payload.Longitude)
+
+	if err != nil {
+		http.Error(w, `{"error":"no data found"}`, http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(payload)
+}
+
 func main() {
 	shutdown := initTracer("tracking-service")
 	defer shutdown(context.Background())
@@ -98,7 +121,7 @@ func main() {
 	createTableQuery := `
 	CREATE TABLE IF NOT EXISTS pet_locations (
 		id SERIAL PRIMARY KEY,
-		pet_id VARCHAR(50) NOT NULL,
+		pet_id INT NOT NULL,
 		latitude DOUBLE PRECISION NOT NULL,
 		longitude DOUBLE PRECISION NOT NULL,
 		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -114,8 +137,9 @@ func main() {
 	// เพิ่ม Endpoint
 	// http.HandleFunc("/", serveFrontend)
 	// http.HandleFunc("/tracking/location", handleLocation)
-	http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
+	// http.Handle("/", otelhttp.NewHandler(http.HandlerFunc(serveFrontend), "serveFrontend"))
 	http.Handle("/tracking/location", otelhttp.NewHandler(http.HandlerFunc(handleLocation), "handleLocation"))
+	http.Handle("/tracking/latest", otelhttp.NewHandler(http.HandlerFunc(getLatestLocation), "getLatestLocation"))
 
 	fmt.Println("Tracking Service กำลังรันอยู่ที่พอร์ต 8081...")
 	log.Fatal(http.ListenAndServe(":8081", nil))

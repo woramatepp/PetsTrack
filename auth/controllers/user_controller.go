@@ -227,7 +227,16 @@ func Login(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("Authorization", token, 3600*24, "/", "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Login Success"})
+	// 🌟 เพิ่มโค้ดส่วนนี้ เพื่อดึงข้อมูล User จากฐานข้อมูล
+	var loggedInUser models.User
+	database.DB.Where("email = ?", body.Email).First(&loggedInUser)
+
+	// 🌟 เปลี่ยนจากการส่งแค่ message ให้ส่ง token และ user กลับไปด้วย
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Login Success",
+		"token":   token,
+		"user":    loggedInUser,
+	})
 }
 
 func SignOut(c *gin.Context) {

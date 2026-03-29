@@ -5,6 +5,7 @@ import Navbar from './components/Navbar';
 import Overview from './pages/Overview';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
+import MyPets from './pages/MyPets';
 import Profile from './pages/Profile'; // หน้าใหม่
 import AddPet from './pages/AddPet'; // หน้าใหม่ (หน้า PetType ในรูป)
 
@@ -42,6 +43,8 @@ function App() {
                     {/* หน้าที่ต้องล็อกอินเท่านั้น */}
                     <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                     <Route path="/add-pet" element={<ProtectedRoute><AddPet /></ProtectedRoute>} />
+
+                    <Route path="/mypets" element={<MyPets />} />
                 </Routes>
             </Router>
         </AuthProvider>
